@@ -31,6 +31,11 @@
             android:name="xposedminversion"
             android:value="93" />
 
+        <!-- Target scope aplikasi yang di-hook -->
+        <meta-data
+            android:name="xposedscope"
+            android:resource="@array/xposed_scope" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
