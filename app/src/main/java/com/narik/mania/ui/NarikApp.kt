@@ -36,7 +36,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -44,15 +43,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.android.gms.location.LocationServices
+import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
 import com.google.maps.android.compose.Circle
@@ -63,6 +61,7 @@ import com.google.maps.android.compose.Marker
 import com.google.maps.android.compose.MarkerState
 import com.google.maps.android.compose.rememberCameraPositionState
 import com.narik.mania.R
+import com.narik.mania.data.JitterRun
 import com.narik.mania.domain.GeoPoint
 import com.narik.mania.domain.JitterMode
 import com.narik.mania.presentation.JitterIntent
@@ -70,6 +69,11 @@ import com.narik.mania.presentation.JitterViewModel
 import com.narik.mania.ui.theme.NarikTheme
 
 private val DEFAULT_CENTER = LatLng(-6.2, 106.8166666)
+
+private val MODE_COLORS = mapOf(
+    JitterMode.GRB to Color(0xFF4CAF50),
+    JitterMode.GJK to Color(0xFF2196F3)
+)
 
 enum class Dest(val label: String) {
     FAV("FAV"), JIT("JIT"), HOME("HOME"), SET("SET"), OPT("OPT")
@@ -81,7 +85,6 @@ fun NarikApp() {
         val vm: JitterViewModel = viewModel()
         val state by vm.state.collectAsState()
         val context = LocalContext.current
-        val density = LocalDensity.current
 
         var destName by rememberSaveable { mutableStateOf(Dest.HOME.name) }
         var jitTabName by rememberSaveable { mutableStateOf(JitterMode.GRB.name) }
@@ -141,20 +144,15 @@ fun NarikApp() {
             }
         }
 
-        var panelHeightPx by remember { mutableIntStateOf(0) }
-        val panelBottom = if (dest == Dest.JIT) with(density) { panelHeightPx.toDp() } else 0.dp
-
-        val grbRunning = state.isRunning && state.mode == JitterMode.GRB
-        val gjkRunning = state.isRunning && state.mode == JitterMode.GJK
-
         val handleModeButton: (JitterMode) -> Unit = { mode ->
+            val run = state.runs[mode] ?: JitterRun()
             if (!fineGranted) {
                 Toast.makeText(context, "Izinkan lokasi terlebih dahulu", Toast.LENGTH_SHORT).show()
-            } else if (state.isRunning && state.mode == mode) {
-                // Mode ini sedang berjalan → STOP
-                vm.onIntent(JitterIntent.Stop)
+            } else if (run.isRunning) {
+                // Mode ini sedang berjalan → STOP mode tsb saja
+                vm.onIntent(JitterIntent.Stop(mode))
             } else {
-                // Mode ini tidak berjalan → PLAY (otomatis mengganti mode lain yg aktif)
+                // PLAY mode tsb (mode lain tetap berjalan)
                 val target = cameraPositionState.position.target
                 vm.onIntent(JitterIntent.Start(mode, GeoPoint(target.latitude, target.longitude)))
             }
@@ -186,22 +184,34 @@ fun NarikApp() {
                     uiSettings = MapUiSettings(zoomControlsEnabled = false),
                     properties = MapProperties(isMyLocationEnabled = fineGranted)
                 ) {
-                    state.center?.let { c ->
-                        val center = LatLng(c.lat, c.lng)
-                        Circle(
-                            center = center,
-                            radius = state.radius.toDouble(),
-                            strokeColor = Color(0xFF4CAF50),
-                            strokeWidth = 4f,
-                            fillColor = Color(0x334CAF50)
-                        )
-                        Marker(state = MarkerState(position = center), title = "Pusat Jitter")
-                    }
-                    state.point?.let { p ->
-                        Marker(
-                            state = MarkerState(position = LatLng(p.lat, p.lng)),
-                            title = "Titik Jitter"
-                        )
+                    // ===== MARKER + JITTER PER MODE =====
+                    state.runs.forEach { (mode, run) ->
+                        if (run.isRunning) {
+                            val color = MODE_COLORS[mode] ?: Color(0xFF4CAF50)
+                            run.center?.let { c ->
+                                val center = LatLng(c.lat, c.lng)
+                                Circle(
+                                    center = center,
+                                    radius = state.radius.toDouble(),
+                                    strokeColor = color,
+                                    strokeWidth = 4f,
+                                    fillColor = color.copy(alpha = 0.2f)
+                                )
+                                Marker(state = MarkerState(position = center), title = "Pusat $mode")
+                            }
+                            run.point?.let { p ->
+                                Marker(
+                                    state = MarkerState(position = LatLng(p.lat, p.lng)),
+                                    title = "Titik $mode",
+                                    icon = BitmapDescriptorFactory.defaultMarker(
+                                        if (mode == JitterMode.GRB)
+                                            BitmapDescriptorFactory.HUE_GREEN
+                                        else
+                                            BitmapDescriptorFactory.HUE_BLUE
+                                    )
+                                )
+                            }
+                        }
                     }
                 }
 
@@ -234,25 +244,24 @@ fun NarikApp() {
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .fillMaxWidth()
-                            .onSizeChanged { panelHeightPx = it.height }
                     )
                 }
 
-                // ===== TOMBOL PLAY/STOP GRB & GJK (KIRI BAWAH) =====
+                // ===== TOMBOL PLAY/STOP GRB & GJK — POSISI TETAP KIRI BAWAH =====
                 Row(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
-                        .padding(start = 16.dp, bottom = panelBottom + 16.dp),
+                        .padding(start = 16.dp, bottom = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     ModeButton(
                         mode = JitterMode.GRB,
-                        isRunning = grbRunning,
+                        isRunning = state.runs[JitterMode.GRB]?.isRunning == true,
                         onClick = { handleModeButton(JitterMode.GRB) }
                     )
                     ModeButton(
                         mode = JitterMode.GJK,
-                        isRunning = gjkRunning,
+                        isRunning = state.runs[JitterMode.GJK]?.isRunning == true,
                         onClick = { handleModeButton(JitterMode.GJK) }
                     )
                 }
