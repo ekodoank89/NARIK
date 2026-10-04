@@ -35,7 +35,6 @@ class JitterViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun start(mode: JitterMode, center: GeoPoint) {
-        if (state.value.isRunning) return
         val context = getApplication<Application>()
         try {
             context.startForegroundService(JitterService.startIntent(context, mode, center))
