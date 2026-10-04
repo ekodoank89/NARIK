@@ -6,8 +6,10 @@ import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -141,8 +143,22 @@ fun NarikApp() {
 
         var panelHeightPx by remember { mutableIntStateOf(0) }
         val panelBottom = if (dest == Dest.JIT) with(density) { panelHeightPx.toDp() } else 0.dp
-        val activeMode = if (dest == Dest.JIT) jitTab else JitterMode.GRB
-        val runningMode = state.mode ?: activeMode
+
+        val grbRunning = state.isRunning && state.mode == JitterMode.GRB
+        val gjkRunning = state.isRunning && state.mode == JitterMode.GJK
+
+        val handleModeButton: (JitterMode) -> Unit = { mode ->
+            if (!fineGranted) {
+                Toast.makeText(context, "Izinkan lokasi terlebih dahulu", Toast.LENGTH_SHORT).show()
+            } else if (state.isRunning && state.mode == mode) {
+                // Mode ini sedang berjalan → STOP
+                vm.onIntent(JitterIntent.Stop)
+            } else {
+                // Mode ini tidak berjalan → PLAY (otomatis mengganti mode lain yg aktif)
+                val target = cameraPositionState.position.target
+                vm.onIntent(JitterIntent.Start(mode, GeoPoint(target.latitude, target.longitude)))
+            }
+        }
 
         Scaffold(
             bottomBar = {
@@ -222,35 +238,44 @@ fun NarikApp() {
                     )
                 }
 
-                // ===== TOMBOL PLAY / STOP =====
-                Button(
-                    onClick = {
-                        if (!fineGranted) {
-                            Toast.makeText(context, "Izinkan lokasi terlebih dahulu", Toast.LENGTH_SHORT).show()
-                            return@Button
-                        }
-                        if (state.isRunning) {
-                            vm.onIntent(JitterIntent.Stop)
-                        } else {
-                            val target = cameraPositionState.position.target
-                            vm.onIntent(
-                                JitterIntent.Start(activeMode, GeoPoint(target.latitude, target.longitude))
-                            )
-                        }
-                    },
-                    colors = if (state.isRunning) {
-                        ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                    } else {
-                        ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                    },
+                // ===== TOMBOL PLAY/STOP GRB & GJK (KIRI BAWAH) =====
+                Row(
                     modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = panelBottom + 16.dp)
+                        .align(Alignment.BottomStart)
+                        .padding(start = 16.dp, bottom = panelBottom + 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text(if (state.isRunning) "■ STOP $runningMode" else "▶ PLAY $activeMode")
+                    ModeButton(
+                        mode = JitterMode.GRB,
+                        isRunning = grbRunning,
+                        onClick = { handleModeButton(JitterMode.GRB) }
+                    )
+                    ModeButton(
+                        mode = JitterMode.GJK,
+                        isRunning = gjkRunning,
+                        onClick = { handleModeButton(JitterMode.GJK) }
+                    )
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ModeButton(
+    mode: JitterMode,
+    isRunning: Boolean,
+    onClick: () -> Unit
+) {
+    Button(
+        onClick = onClick,
+        colors = if (isRunning) {
+            ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+        } else {
+            ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+        }
+    ) {
+        Text(if (isRunning) "■ STOP $mode" else "▶ PLAY $mode")
     }
 }
 
