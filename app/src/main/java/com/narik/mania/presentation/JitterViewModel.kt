@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.StateFlow
 
 sealed interface JitterIntent {
     data class Start(val mode: JitterMode, val center: GeoPoint) : JitterIntent
-    object Stop : JitterIntent
+    data class Stop(val mode: JitterMode) : JitterIntent
     data class SetStep(val value: Float) : JitterIntent
     data class SetRadius(val value: Float) : JitterIntent
     data class SetInterval(val value: Int) : JitterIntent
@@ -24,7 +24,7 @@ class JitterViewModel(app: Application) : AndroidViewModel(app) {
     fun onIntent(intent: JitterIntent) {
         when (intent) {
             is JitterIntent.Start -> start(intent.mode, intent.center)
-            JitterIntent.Stop -> stop()
+            is JitterIntent.Stop -> stop(intent.mode)
             is JitterIntent.SetStep ->
                 JitterStateHolder.update { it.copy(step = intent.value.coerceIn(0.1f, 20f)) }
             is JitterIntent.SetRadius ->
@@ -43,12 +43,12 @@ class JitterViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private fun stop() {
+    private fun stop(mode: JitterMode) {
         val context = getApplication<Application>()
         try {
-            context.startService(JitterService.stopIntent(context))
+            context.startService(JitterService.stopIntent(context, mode))
         } catch (_: Exception) {
-            JitterStateHolder.stopRun()
+            JitterStateHolder.stopRun(mode)
         }
     }
 }
