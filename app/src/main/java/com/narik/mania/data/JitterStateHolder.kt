@@ -7,14 +7,18 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
-data class JitterUiState(
+/** Status satu run (GRB atau GJK). */
+data class JitterRun(
     val isRunning: Boolean = false,
-    val mode: JitterMode? = null,
-    val step: Float = 1.0f,
-    val radius: Float = 5.0f,
-    val interval: Int = 1,
     val center: GeoPoint? = null,
     val point: GeoPoint? = null
+)
+
+data class JitterUiState(
+    val runs: Map<JitterMode, JitterRun> = JitterMode.entries.associateWith { JitterRun() },
+    val step: Float = 1.0f,
+    val radius: Float = 5.0f,
+    val interval: Int = 1
 )
 
 /** Single source of truth (repository) — dipakai UI & Service. */
@@ -26,10 +30,15 @@ object JitterStateHolder {
     fun update(transform: (JitterUiState) -> JitterUiState) = _state.update(transform)
 
     fun startRun(mode: JitterMode, center: GeoPoint) = _state.update {
-        it.copy(isRunning = true, mode = mode, center = center, point = center)
+        it.copy(runs = it.runs + (mode to JitterRun(isRunning = true, center = center, point = center)))
     }
 
-    fun stopRun() = _state.update {
-        it.copy(isRunning = false, mode = null, center = null, point = null)
+    fun stopRun(mode: JitterMode) = _state.update {
+        it.copy(runs = it.runs + (mode to JitterRun()))
+    }
+
+    fun updatePoint(mode: JitterMode, point: GeoPoint) = _state.update {
+        val run = it.runs[mode] ?: return@update it
+        it.copy(runs = it.runs + (mode to run.copy(point = point)))
     }
 }
