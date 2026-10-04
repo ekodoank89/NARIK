@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">NARIK</string>
+    <string name="xposed_description">NARIK - Jitter Module</string>
+    <string name="notif_channel_name">NARIK Jitter</string>
+</resources>
