@@ -28,7 +28,7 @@ import java.util.Locale
 class JitterService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private var job: Job? = null
+    private val jobs = mutableMapOf<JitterMode, Job>()
     private lateinit var notificationManager: NotificationManager
 
     override fun onCreate() {
@@ -46,40 +46,51 @@ class JitterService : Service() {
                     intent.getDoubleExtra(EXTRA_LAT, 0.0),
                     intent.getDoubleExtra(EXTRA_LNG, 0.0)
                 )
-                startForeground(NOTIF_ID, buildNotification(mode), ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+                startForeground(
+                    NOTIF_ID,
+                    buildNotification(),
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+                )
                 JitterStateHolder.startRun(mode, center)
-                job?.cancel()
-                job = scope.launch { runLoop(mode, center) }
+                jobs.remove(mode)?.cancel()
+                jobs[mode] = scope.launch { runLoop(mode) }
+                notificationManager.notify(NOTIF_ID, buildNotification())
             }
-            ACTION_STOP -> stopEverything()
+            ACTION_STOP -> {
+                val mode = intent.getStringExtra(EXTRA_MODE)
+                    ?.let { JitterMode.valueOf(it) } ?: return START_NOT_STICKY
+                jobs.remove(mode)?.cancel()
+                JitterStateHolder.stopRun(mode)
+                if (jobs.isEmpty()) {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                } else {
+                    notificationManager.notify(NOTIF_ID, buildNotification())
+                }
+            }
         }
         return START_NOT_STICKY
     }
 
-    private suspend fun runLoop(mode: JitterMode, center: GeoPoint) {
+    private suspend fun runLoop(mode: JitterMode) {
         while (currentCoroutineContext().isActive) {
             val s = JitterStateHolder.state.value
-            if (!s.isRunning) break
+            val run = s.runs[mode] ?: break
+            if (!run.isRunning) break
+            val center = run.center ?: break
             val next = when (mode) {
-                JitterMode.GRB -> JitterEngine.nextGrb(s.point, center, s.step.toDouble(), s.radius.toDouble())
-                JitterMode.GJK -> JitterEngine.nextGjk(s.point, center, s.step.toDouble(), s.radius.toDouble())
+                JitterMode.GRB -> JitterEngine.nextGrb(run.point, center, s.step.toDouble(), s.radius.toDouble())
+                JitterMode.GJK -> JitterEngine.nextGjk(run.point, center, s.step.toDouble(), s.radius.toDouble())
             }
-            JitterStateHolder.update { it.copy(point = next) }
-            notificationManager.notify(NOTIF_ID, buildNotification(mode))
+            JitterStateHolder.updatePoint(mode, next)
+            notificationManager.notify(NOTIF_ID, buildNotification())
             delay(s.interval * 1000L)
         }
     }
 
-    private fun stopEverything() {
-        job?.cancel()
-        job = null
-        JitterStateHolder.stopRun()
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
-    }
-
-    private fun buildNotification(mode: JitterMode): Notification {
+    private fun buildNotification(): Notification {
         val s = JitterStateHolder.state.value
+        val active = s.runs.filterValues { it.isRunning }.keys.joinToString(" • ")
         val text = String.format(
             Locale.US,
             "Langkah %.1f m • Radius %.1f m • Interval %d dtk",
@@ -87,7 +98,7 @@ class JitterService : Service() {
         )
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_narik)
-            .setContentTitle("NARIK • $mode AKTIF")
+            .setContentTitle(if (active.isEmpty()) "NARIK" else "NARIK • $active AKTIF")
             .setContentText(text)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
@@ -128,7 +139,10 @@ class JitterService : Service() {
                 putExtra(EXTRA_LNG, center.lng)
             }
 
-        fun stopIntent(context: Context): Intent =
-            Intent(context, JitterService::class.java).apply { action = ACTION_STOP }
+        fun stopIntent(context: Context, mode: JitterMode): Intent =
+            Intent(context, JitterService::class.java).apply {
+                action = ACTION_STOP
+                putExtra(EXTRA_MODE, mode.name)
+            }
     }
 }
