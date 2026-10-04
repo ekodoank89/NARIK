@@ -37,7 +37,10 @@ fun JitterPanel(
         tonalElevation = 6.dp,
         color = MaterialTheme.colorScheme.surface
     ) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
+        Column(
+            Modifier.fillMaxWidth()
+                .padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 88.dp)
+        ) {
 
             TabRow(selectedTabIndex = tab.ordinal) {
                 JitterMode.entries.forEach { m ->
